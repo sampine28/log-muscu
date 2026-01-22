@@ -56,10 +56,6 @@
       border:1px solid rgba(255,255,255,.12);
       color:var(--text);
     }
-    button.danger{
-      background:rgba(255,80,80,.14);
-      border-color:rgba(255,80,80,.35);
-    }
     button:disabled{ opacity:.45; }
 
     .hint{font-size:12px; color:var(--muted); margin-top:8px; line-height:1.35}
@@ -72,12 +68,21 @@
       box-shadow: 0 10px 30px rgba(0,0,0,.25);
     }
     .cardTitle{
-      display:flex; justify-content:space-between; align-items:center; gap:10px;
+      display:flex; justify-content:space-between; align-items:flex-start; gap:10px;
       margin-bottom:10px;
     }
     .cardTitle strong{font-size:14px}
     .small{font-size:12px; color:var(--muted)}
-
+    .prevLine{
+      margin-top:6px;
+      font-size:12px;
+      color:rgba(234,240,255,.85);
+      background:rgba(255,255,255,.06);
+      border:1px solid rgba(255,255,255,.08);
+      padding:8px 10px;
+      border-radius:14px;
+      line-height:1.3;
+    }
     .grid{
       display:grid;
       grid-template-columns: 1fr 1fr;
@@ -309,13 +314,28 @@ function openLastWorkoutForSession(session){
   return newWorkout(session);
 }
 
+// 🔥 trouve l'exercice dans la séance précédente (même type de séance)
+function findPreviousEntry(currentWorkout, exerciseName){
+  const idx = db.workouts.findIndex(w => w.id === currentWorkout.id);
+  if(idx === -1) return null;
+
+  // cherche dans les séances plus anciennes (après idx, car unshift => 0 = plus récent)
+  for(let i = idx + 1; i < db.workouts.length; i++){
+    const w = db.workouts[i];
+    if(w.session !== currentWorkout.session) continue;
+    const e = (w.entries || []).find(x => (x.name || "").toLowerCase() === exerciseName.toLowerCase());
+    if(e) return { workout: w, entry: e };
+  }
+  return null;
+}
+
 function setView(v){
   view = v;
   render();
 }
 
 /** =========================
- *  Mini chrono (FIX : affiche le décompte)
+ *  Mini chrono (décompte visible)
  *  ========================= */
 const t30 = document.getElementById("t30");
 const t60 = document.getElementById("t60");
@@ -335,8 +355,6 @@ function showTimerButtons(show){
   t30.style.display = dispBtns;
   t60.style.display = dispBtns;
   t120.style.display = dispBtns;
-
-  // IMPORTANT: rendre visible le décompte
   timerDisplay.style.display = show ? "none" : "inline-block";
 }
 function stopTimer(){
@@ -351,13 +369,12 @@ function startTimer(seconds){
   timerEndAt = Date.now() + seconds*1000;
   showTimerButtons(false);
 
-  // Afficher immédiatement (sinon tu “ne vois rien”)
+  // affichage immédiat
   timerDisplay.textContent = fmtTime(seconds);
 
   const tick = () => {
     const left = Math.max(0, Math.ceil((timerEndAt - Date.now()) / 1000));
     timerDisplay.textContent = fmtTime(left);
-
     if(left <= 0){
       stopTimer();
       if(navigator.vibrate) navigator.vibrate([120,60,120]);
@@ -367,30 +384,10 @@ function startTimer(seconds){
   tick();
   timerInterval = setInterval(tick, 200);
 }
-
-// Clicks
 t30.addEventListener("click", () => startTimer(30));
 t60.addEventListener("click", () => startTimer(60));
 t120.addEventListener("click", () => startTimer(120));
-// Tap on timer => cancel/reset
 timerDisplay.addEventListener("click", () => stopTimer());
-
-/** =========================
- *  Buttons / navigation
- *  ========================= */
-toWorkoutBtn.addEventListener("click", () => setView("workout"));
-statsBtn.addEventListener("click", () => setView("stats"));
-settingsBtn.addEventListener("click", () => setView("settings"));
-
-newWorkoutBtn.addEventListener("click", () => {
-  newWorkout(sessionSelect.value);
-  setView("workout");
-});
-
-sessionSelect.addEventListener("change", () => {
-  openLastWorkoutForSession(sessionSelect.value);
-  setView("workout");
-});
 
 /** =========================
  *  Export / Import
@@ -454,6 +451,23 @@ function importJSON(){
 }
 
 /** =========================
+ *  Navigation
+ *  ========================= */
+toWorkoutBtn.addEventListener("click", () => setView("workout"));
+statsBtn.addEventListener("click", () => setView("stats"));
+settingsBtn.addEventListener("click", () => setView("settings"));
+
+newWorkoutBtn.addEventListener("click", () => {
+  newWorkout(sessionSelect.value);
+  setView("workout");
+});
+
+sessionSelect.addEventListener("change", () => {
+  openLastWorkoutForSession(sessionSelect.value);
+  setView("workout");
+});
+
+/** =========================
  *  Render: Workout
  *  ========================= */
 function renderWorkout(){
@@ -467,6 +481,7 @@ function renderWorkout(){
   const wrapper = document.createElement("div");
   wrapper.className = "card";
 
+  // ✅ plus de bouton supprimer ici
   const top = document.createElement("div");
   top.className = "cardTitle";
   top.innerHTML = `
@@ -474,24 +489,10 @@ function renderWorkout(){
       <strong>📅 ${w.session}</strong>
       <div class="small">${date}</div>
     </div>
-    <button class="danger" id="delBtn">Supprimer</button>
+    <span class="pill">Séance</span>
   `;
   wrapper.appendChild(top);
 
-  // delete workout
-  setTimeout(() => {
-    const delBtn = document.getElementById("delBtn");
-    if(delBtn){
-      delBtn.onclick = () => {
-        db.workouts = db.workouts.filter(x => x.id !== w.id);
-        currentWorkoutId = db.workouts[0]?.id || null;
-        saveDB(db);
-        render();
-      };
-    }
-  }, 0);
-
-  // exercises list
   const list = document.createElement("div");
   list.className = "exList";
 
@@ -504,23 +505,33 @@ function renderWorkout(){
     title.innerHTML = `
       <div>
         <strong>${e.name}</strong>
-        <div class="small">Reps & charge uniquement</div>
+        <div class="small">Reps & charge</div>
       </div>
-      <button class="danger" style="padding:8px 10px;border-radius:12px;">✕</button>
+      <span class="pill">Ex ${idx+1}</span>
     `;
-    title.querySelector("button").onclick = () => {
-      if(!confirm("Supprimer cet exercice ?")) return;
-      w.entries.splice(idx,1);
-      saveDB(db);
-      render();
-    };
     card.appendChild(title);
 
-    // toggle 3/4 series
+    // ✅ affichage facile de la séance précédente (même type)
+    const prev = findPreviousEntry(w, e.name);
+    const prevBox = document.createElement("div");
+    prevBox.className = "prevLine";
+    if(prev){
+      const pe = prev.entry;
+      const psets = (pe.sets || []).map(x => (x===null||x===undefined||x==="") ? "—" : String(x));
+      const is3 = !!pe.use3;
+      const shownSets = (is3 ? psets.slice(0,3) : psets.slice(0,4));
+      const pW = (pe.weight===null||pe.weight===undefined||pe.weight==="") ? "—" : String(pe.weight);
+      prevBox.innerHTML = `<span class="small">Dernière fois</span> : <b>${pW} kg</b> — <b>${shownSets.join(" / ")}</b>`;
+    } else {
+      prevBox.innerHTML = `<span class="small">Dernière fois</span> : <b>—</b>`;
+    }
+    card.appendChild(prevBox);
+
+    // Toggle 3/4 séries
     const toggleRow = document.createElement("div");
     toggleRow.className = "row";
     toggleRow.style.justifyContent = "space-between";
-    toggleRow.style.marginBottom = "8px";
+    toggleRow.style.marginTop = "10px";
     toggleRow.innerHTML = `
       <span class="small">Format</span>
       <button class="ghost">${e.use3 ? "3 séries ✅" : "4 séries"}</button>
@@ -533,7 +544,7 @@ function renderWorkout(){
     };
     card.appendChild(toggleRow);
 
-    // sets
+    // Sets
     const grid = document.createElement("div");
     grid.className = "grid";
     ["S1","S2","S3","S4"].forEach((lab, s) => {
@@ -558,7 +569,7 @@ function renderWorkout(){
     });
     card.appendChild(grid);
 
-    // weight
+    // Weight
     const weightField = document.createElement("div");
     weightField.className = "field";
     weightField.style.marginTop = "10px";
@@ -579,7 +590,7 @@ function renderWorkout(){
     weightField.appendChild(winp);
     card.appendChild(weightField);
 
-    // auto stats
+    // Auto stats
     const autoWrap = document.createElement("div");
     autoWrap.style.display="grid";
     autoWrap.style.gridTemplateColumns="1fr 1fr";
@@ -597,13 +608,13 @@ function renderWorkout(){
     `;
     card.appendChild(autoWrap);
 
-    // action
+    // Action
     const act = document.createElement("div");
     act.className = "action warn";
     act.dataset.k = "action";
     card.appendChild(act);
 
-    // target hint
+    // Target hint
     const target = document.createElement("div");
     target.className = "hint";
     target.dataset.k = "target";
@@ -821,7 +832,7 @@ function render(){
   toWorkoutBtn.style.display = (view === "workout") ? "none" : "inline-block";
   toWorkoutBtn.disabled = (view === "workout");
 
-  // toolbar hidden in settings to gain space
+  // toolbar hidden in settings (gain de place)
   document.getElementById("toolbar").style.display = (view === "settings") ? "none" : "flex";
 
   // keep select synced with current workout
@@ -833,7 +844,7 @@ function render(){
   if(view === "settings") renderSettings();
 }
 
-// Start on last workout (or create one)
+// Start on last workout of selected session (or create one)
 openLastWorkoutForSession(sessionSelect.value || "Haut A");
 render();
 
