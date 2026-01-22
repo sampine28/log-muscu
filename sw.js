@@ -1,4 +1,4 @@
-const CACHE = "log-muscu-v2";
+const CACHE = "log-muscu-v4";
 const ASSETS = ["./", "./index.html", "./manifest.json", "./sw.js"];
 
 self.addEventListener("install", e => {
