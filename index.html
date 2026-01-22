@@ -30,24 +30,23 @@
       border:1px solid rgba(255,255,255,.06);
     }
     .row{display:flex; gap:10px; align-items:center; flex-wrap:wrap}
-    h1{font-size:18px; margin:0}
     .pill{
       font-size:12px; color:var(--muted); border:1px solid rgba(255,255,255,.10);
       padding:6px 10px; border-radius:999px;
     }
-    select, button, input[type="number"], input[type="text"]{font:inherit}
+    select, button, input[type="number"]{font:inherit}
     select{
       background:rgba(255,255,255,.08); color:var(--text);
       border:1px solid rgba(255,255,255,.12);
       padding:10px 12px; border-radius:14px;
-      min-width: 140px;
+      min-width: 130px;
     }
     button{
       background:rgba(122,168,255,.16);
       color:var(--text);
       border:1px solid rgba(122,168,255,.35);
       padding:10px 12px; border-radius:14px;
-      font-weight:700;
+      font-weight:800;
     }
     button.ghost{
       background:transparent;
@@ -57,6 +56,9 @@
     button.danger{
       background:rgba(255,80,80,.14);
       border-color:rgba(255,80,80,.35);
+    }
+    button:disabled{
+      opacity:.45;
     }
     .hint{font-size:12px; color:var(--muted); margin-top:8px; line-height:1.35}
     .card{
@@ -96,7 +98,7 @@
       background:var(--input);
       color:#111;
       font-size:18px;
-      font-weight:800;
+      font-weight:900;
       text-align:center;
       outline:none;
     }
@@ -141,16 +143,12 @@
 <body>
 
 <header>
-  <div class="row" style="justify-content:space-between">
-    <div>
-      <h1>🏋️ Log Muscu (Offline)</h1>
-      <div class="hint">Méthode : <b>6 → 10 reps</b>, puis <b>+ charge</b> et retour vers ~6.</div>
-    </div>
-    <div class="row">
-      <span class="pill" id="todayPill"></span>
-    </div>
+  <!-- Header compact : date -->
+  <div class="row" style="justify-content:flex-end">
+    <span class="pill" id="todayPill"></span>
   </div>
 
+  <!-- Navigation -->
   <div class="row" style="margin-top:10px">
     <select id="sessionSelect">
       <option value="Haut A">Haut A</option>
@@ -159,10 +157,12 @@
       <option value="Bas B">Bas B</option>
     </select>
 
-    <button id="newWorkoutBtn">+ Nouvelle séance</button>
-    <button class="ghost" id="backBtn" style="display:none">⬅️ Séance</button>
-    <button class="ghost" id="statsBtn">📈 Progression</button>
-    <button class="ghost" id="settingsBtn">⚙️ Exercices</button>
+    <button class="ghost" id="toWorkoutBtn">⬅️ Séance</button>
+    <button class="ghost" id="homeBtn">🏠</button>
+    <button class="ghost" id="statsBtn">📈</button>
+    <button class="ghost" id="settingsBtn">⚙️</button>
+
+    <button id="newWorkoutBtn">+ Nouvelle</button>
   </div>
 </header>
 
@@ -179,6 +179,9 @@
  *  Stockage (offline)
  *  ========================= */
 const KEY = "log_muscu_v1";
+
+const SESSIONS = ["Haut A","Haut B","Bas A","Bas B"];
+
 const defaultExercises = {
   "Haut A": ["Développé couché", "Rowing", "Développé épaules", "Tractions", "Curl"],
   "Haut B": ["Développé incliné", "Tirage vertical", "Dips", "Oiseau", "Curl incliné"],
@@ -214,10 +217,9 @@ function volume(sets, w, use3=false){
   return totalReps(sets, use3) * Number(w||0);
 }
 function actionFor(sets, use3=false){
-  // 4x6-10 => min=24 max=40 ; 3x6-10 => min=18 max=30
   const t = totalReps(sets, use3);
-  const max = use3 ? 30 : 40;
-  const min = use3 ? 18 : 24;
+  const max = use3 ? 30 : 40; // 3x10 vs 4x10
+  const min = use3 ? 18 : 24; // 3x6 vs 4x6
 
   if(t >= max) return { text:"⬆️ AUGMENTER LA CHARGE", cls:"ok" };
   if(t >= min) return { text:"➡️ AJOUTER DES REPS", cls:"warn" };
@@ -235,11 +237,19 @@ document.getElementById("todayPill").textContent = todayStr();
  *  ========================= */
 const main = document.getElementById("main");
 const sessionSelect = document.getElementById("sessionSelect");
-const backBtn = document.getElementById("backBtn");
 
-let view = "workout"; // workout | stats | settings
+const toWorkoutBtn = document.getElementById("toWorkoutBtn");
+const homeBtn = document.getElementById("homeBtn");
+const statsBtn = document.getElementById("statsBtn");
+const settingsBtn = document.getElementById("settingsBtn");
+const newWorkoutBtn = document.getElementById("newWorkoutBtn");
+
+let view = "home"; // home | workout | stats | settings
 let currentWorkoutId = null;
 
+/** =========================
+ *  Workouts helpers
+ *  ========================= */
 function newWorkout(session){
   const exs = (db.exercises[session] || []).slice(0);
   const workout = {
@@ -248,19 +258,21 @@ function newWorkout(session){
     date: new Date().toISOString(),
     entries: exs.map(name => ({
       name,
-      sets: [null,null,null,null],  // S1..S4
-      use3: false,                  // 3 séries ?
+      sets: [null,null,null,null],
+      use3: false,
       weight: null
     }))
   };
   db.workouts.unshift(workout);
   saveDB(db);
   currentWorkoutId = workout.id;
+  return workout;
 }
 
 function getWorkout(){
   if(!db.workouts.length){
-    newWorkout(sessionSelect.value);
+    // default create for first use
+    newWorkout("Haut A");
   }
   if(!currentWorkoutId){
     currentWorkoutId = db.workouts[0].id;
@@ -268,16 +280,42 @@ function getWorkout(){
   return db.workouts.find(w => w.id === currentWorkoutId) || db.workouts[0];
 }
 
+// last workout for a session
+function openLastWorkoutForSession(session){
+  const found = db.workouts.find(w => w.session === session);
+  if(found){
+    currentWorkoutId = found.id;
+    return found;
+  }
+  return newWorkout(session);
+}
+
 function setView(v){ view = v; render(); }
 
-document.getElementById("newWorkoutBtn").addEventListener("click", () => {
+/** =========================
+ *  Nav / Buttons
+ *  ========================= */
+homeBtn.addEventListener("click", () => setView("home"));
+statsBtn.addEventListener("click", () => setView("stats"));
+settingsBtn.addEventListener("click", () => setView("settings"));
+toWorkoutBtn.addEventListener("click", () => setView("workout"));
+
+newWorkoutBtn.addEventListener("click", () => {
+  // create a new workout for the currently selected session
+  openLastWorkoutForSession(sessionSelect.value);
   newWorkout(sessionSelect.value);
   setView("workout");
 });
-document.getElementById("statsBtn").addEventListener("click", () => setView("stats"));
-document.getElementById("settingsBtn").addEventListener("click", () => setView("settings"));
-backBtn.addEventListener("click", () => setView("workout"));
 
+// session select opens last workout of that session (or creates)
+sessionSelect.addEventListener("change", () => {
+  openLastWorkoutForSession(sessionSelect.value);
+  setView("workout");
+});
+
+/** =========================
+ *  Save / Export / Import
+ *  ========================= */
 document.getElementById("saveBtn").addEventListener("click", () => {
   saveDB(db);
   toast("Sauvé ✅");
@@ -302,9 +340,6 @@ function toast(msg){
   setTimeout(()=>t.remove(), 1200);
 }
 
-/** =========================
- *  Export / Import
- *  ========================= */
 function exportJSON(){
   saveDB(db);
   const blob = new Blob([JSON.stringify(db, null, 2)], {type:"application/json"});
@@ -315,6 +350,7 @@ function exportJSON(){
   a.click();
   URL.revokeObjectURL(url);
 }
+
 function importJSON(){
   const inp = document.createElement("input");
   inp.type="file";
@@ -339,22 +375,60 @@ function importJSON(){
 }
 
 /** =========================
- *  Render: Workout
+ *  Views
  *  ========================= */
+function renderHome(){
+  // set select to last used session if possible
+  const last = db.workouts[0]?.session || "Haut A";
+  sessionSelect.value = last;
+
+  const wrap = document.createElement("div");
+  wrap.className = "card";
+  wrap.innerHTML = `
+    <div class="cardTitle">
+      <div>
+        <strong>Choisir une séance</strong>
+        <div class="small">Haut x2 / Bas x2 — double progression</div>
+      </div>
+      <span class="pill">${todayStr()}</span>
+    </div>
+    <div class="hint">Tape une séance pour ouvrir la dernière (ou créer la première).</div>
+  `;
+
+  const list = document.createElement("div");
+  list.className = "exList";
+
+  SESSIONS.forEach(s => {
+    const b = document.createElement("button");
+    b.className = "ghost";
+    b.style.width = "100%";
+    b.style.padding = "14px 12px";
+    const lastW = db.workouts.find(w => w.session === s);
+    const suffix = lastW ? (" — " + new Date(lastW.date).toLocaleDateString("fr-FR",{month:"short",day:"numeric"})) : " — (nouveau)";
+    b.textContent = `▶️ ${s}${suffix}`;
+    b.onclick = () => {
+      sessionSelect.value = s;
+      openLastWorkoutForSession(s);
+      setView("workout");
+    };
+    list.appendChild(b);
+  });
+
+  wrap.appendChild(list);
+  main.replaceChildren(wrap);
+}
+
 function renderWorkout(){
   const w = getWorkout();
   sessionSelect.value = w.session;
 
   const date = new Date(w.date).toLocaleString("fr-FR", {
-    year:"numeric", month:"short", day:"numeric",
-    hour:"2-digit", minute:"2-digit"
+    year:"numeric", month:"short", day:"numeric", hour:"2-digit", minute:"2-digit"
   });
 
-  // Wrapper principal
   const wrapper = document.createElement("div");
   wrapper.className = "card";
 
-  // Header séance
   const top = document.createElement("div");
   top.className = "cardTitle";
   top.innerHTML = `
@@ -378,7 +452,7 @@ function renderWorkout(){
     }
   }, 0);
 
-  // ===== LISTE DES EXERCICES =====
+  // List of exercises
   const list = document.createElement("div");
   list.className = "exList";
 
@@ -386,7 +460,6 @@ function renderWorkout(){
     const card = document.createElement("div");
     card.className = "card";
 
-    // Titre exercice + suppression
     const title = document.createElement("div");
     title.className = "cardTitle";
     title.innerHTML = `
@@ -404,7 +477,7 @@ function renderWorkout(){
     };
     card.appendChild(title);
 
-    // Toggle 3 / 4 séries
+    // Toggle 3/4 series
     const toggleRow = document.createElement("div");
     toggleRow.className = "row";
     toggleRow.style.justifyContent = "space-between";
@@ -445,7 +518,7 @@ function renderWorkout(){
     });
     card.appendChild(grid);
 
-    // Charge
+    // Weight
     const weightField = document.createElement("div");
     weightField.className = "field";
     weightField.style.marginTop = "10px";
@@ -490,20 +563,20 @@ function renderWorkout(){
     act.dataset.k = "action";
     card.appendChild(act);
 
-    // Cible
+    // Target hint
     const target = document.createElement("div");
     target.className = "hint";
     target.dataset.k = "target";
+    target.style.marginTop = "8px";
     card.appendChild(target);
 
     updateEntryUI(card, e);
     list.appendChild(card);
   });
 
-  // 👉 AJOUT DE LA LISTE AU WRAPPER
   wrapper.appendChild(list);
 
-  // ===== BOUTON AJOUTER EXERCICE (EN BAS) =====
+  // Add exercise (BOTTOM)
   const addRow = document.createElement("div");
   addRow.className = "card";
   addRow.innerHTML = `<button class="ghost" style="width:100%">➕ Ajouter un exercice</button>`;
@@ -516,23 +589,23 @@ function renderWorkout(){
   };
   wrapper.appendChild(addRow);
 
-  // Historique
+  // History
   const histWrap = document.createElement("div");
   histWrap.className = "card";
-  histWrap.innerHTML = `<div class="cardTitle"><strong>🗃 Historique</strong></div>`;
+  histWrap.innerHTML = `<div class="cardTitle"><div><strong>🗃 Historique</strong><div class="small">Tape pour ouvrir une séance passée</div></div></div>`;
   const hist = document.createElement("div");
   hist.className = "exList";
 
-  db.workouts.slice(0,8).forEach(x => {
+  db.workouts.slice(0, 8).forEach(x => {
     const b = document.createElement("button");
     b.className = "ghost";
-    const d = new Date(x.date).toLocaleDateString("fr-FR",{month:"short",day:"numeric"});
-    b.textContent = `${x.session} — ${d}`;
-    b.onclick = () => { currentWorkoutId = x.id; render(); };
+    const xd = new Date(x.date).toLocaleDateString("fr-FR", { month:"short", day:"numeric" });
+    b.textContent = `${x.session} — ${xd}`;
+    b.onclick = () => { currentWorkoutId = x.id; setView("workout"); };
     hist.appendChild(b);
   });
-
   histWrap.appendChild(hist);
+
   main.replaceChildren(wrapper, histWrap);
 }
 
@@ -559,19 +632,15 @@ function updateEntryUI(cardEl, entry){
   }
 }
 
-/** =========================
- *  Render: Settings
- *  ========================= */
 function renderSettings(){
   const s = sessionSelect.value;
   const wrap = document.createElement("div");
   wrap.className = "card";
   wrap.innerHTML = `
     <div class="cardTitle">
-      <div><strong>⚙️ Exercices</strong><div class="small">Modifie la liste par séance (1 ligne = 1 exercice)</div></div>
+      <div><strong>⚙️ Exercices</strong><div class="small">1 ligne = 1 exercice (par séance)</div></div>
       <span class="pill">${s}</span>
     </div>
-    <div class="hint">Conseil iPhone : garde 4–6 exercices. Tu peux changer la liste quand tu veux.</div>
   `;
 
   const textarea = document.createElement("textarea");
@@ -588,7 +657,7 @@ function renderSettings(){
 
   const saveBtn = document.createElement("button");
   saveBtn.style.marginTop="10px";
-  saveBtn.textContent = "Enregistrer la liste";
+  saveBtn.textContent = "Enregistrer";
   saveBtn.onclick = () => {
     const lines = textarea.value.split("\n").map(x=>x.trim()).filter(Boolean);
     db.exercises[s] = lines;
@@ -598,15 +667,12 @@ function renderSettings(){
 
   const note = document.createElement("div");
   note.className = "hint";
-  note.textContent = "La nouvelle liste sera utilisée quand tu crées une “Nouvelle séance”.";
+  note.textContent = "La liste s'applique aux nouvelles séances (+ Nouvelle).";
 
   wrap.append(textarea, saveBtn, note);
   main.replaceChildren(wrap);
 }
 
-/** =========================
- *  Render: Stats (graphs)
- *  ========================= */
 function renderStats(){
   const session = sessionSelect.value;
 
@@ -614,10 +680,9 @@ function renderStats(){
   wrap.className = "card";
   wrap.innerHTML = `
     <div class="cardTitle">
-      <div><strong>📈 Progression</strong><div class="small">${session} — charge & volume (séances récentes)</div></div>
+      <div><strong>📈 Progression</strong><div class="small">${session} — charge & volume</div></div>
       <span class="pill">Offline</span>
     </div>
-    <div class="hint">Astuce : tape “Nouvelle séance” à chaque entraînement pour que les courbes soient propres.</div>
   `;
 
   const ws = db.workouts
@@ -713,17 +778,22 @@ function renderStats(){
  *  Main render
  *  ========================= */
 function render(){
-  // ✅ Back button must be toggled here (runs on every view change)
-  backBtn.style.display = (view === "workout") ? "none" : "inline-block";
+  // Back-to-workout button: visible everywhere except workout
+  toWorkoutBtn.style.display = (view === "workout") ? "none" : "inline-block";
+  toWorkoutBtn.disabled = (view === "workout");
 
-  // show/hide toolbar
+  // Toolbar hidden only in settings (keep in home/stats for export/import)
   document.getElementById("toolbar").style.display = (view === "settings") ? "none" : "flex";
 
+  // Keep select in sync (show last/current session)
+  const w = db.workouts.find(x => x.id === currentWorkoutId) || db.workouts[0];
+  if(w && SESSIONS.includes(w.session)) sessionSelect.value = w.session;
+
+  if(view === "home") renderHome();
   if(view === "workout") renderWorkout();
   if(view === "stats") renderStats();
   if(view === "settings") renderSettings();
 }
-sessionSelect.addEventListener("change", ()=>render());
 
 // Start
 render();
