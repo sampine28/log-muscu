@@ -345,15 +345,25 @@ function renderWorkout(){
   const w = getWorkout();
   sessionSelect.value = w.session;
 
-  const date = new Date(w.date).toLocaleString("fr-FR", { year:"numeric", month:"short", day:"numeric", hour:"2-digit", minute:"2-digit" });
+  const date = new Date(w.date).toLocaleString("fr-FR", {
+    year:"numeric", month:"short", day:"numeric",
+    hour:"2-digit", minute:"2-digit"
+  });
 
+  // Wrapper principal
   const wrapper = document.createElement("div");
   wrapper.className = "card";
 
+  // Header séance
   const top = document.createElement("div");
   top.className = "cardTitle";
-  top.innerHTML = `<div><strong>📅 ${w.session}</strong><div class="small">${date}</div></div>
-                   <button class="danger" id="delBtn">Supprimer</button>`;
+  top.innerHTML = `
+    <div>
+      <strong>📅 ${w.session}</strong>
+      <div class="small">${date}</div>
+    </div>
+    <button class="danger" id="delBtn">Supprimer</button>
+  `;
   wrapper.appendChild(top);
 
   setTimeout(() => {
@@ -368,20 +378,7 @@ function renderWorkout(){
     }
   }, 0);
 
-  // + Add exercise button
-  const addRow = document.createElement("div");
-  addRow.className = "row";
-  addRow.style.marginTop = "10px";
-  addRow.innerHTML = `<button class="ghost" style="width:100%">➕ Ajouter un exercice</button>`;
-  addRow.querySelector("button").onclick = () => {
-    const name = prompt("Nom de l'exercice ?");
-    if(!name) return;
-    w.entries.push({ name, sets:[null,null,null,null], use3:false, weight:null });
-    saveDB(db);
-    render();
-  };
-  wrapper.appendChild(addRow);
-
+  // ===== LISTE DES EXERCICES =====
   const list = document.createElement("div");
   list.className = "exList";
 
@@ -389,21 +386,25 @@ function renderWorkout(){
     const card = document.createElement("div");
     card.className = "card";
 
+    // Titre exercice + suppression
     const title = document.createElement("div");
     title.className = "cardTitle";
     title.innerHTML = `
-      <div><strong>${e.name}</strong><div class="small">Reps & charge uniquement</div></div>
+      <div>
+        <strong>${e.name}</strong>
+        <div class="small">Reps & charge uniquement</div>
+      </div>
       <button class="danger" style="padding:8px 10px;border-radius:12px;">✕</button>
     `;
     title.querySelector("button").onclick = () => {
       if(!confirm("Supprimer cet exercice ?")) return;
-      w.entries.splice(idx, 1);
+      w.entries.splice(idx,1);
       saveDB(db);
       render();
     };
     card.appendChild(title);
 
-    // Toggle 3/4 series
+    // Toggle 3 / 4 séries
     const toggleRow = document.createElement("div");
     toggleRow.className = "row";
     toggleRow.style.justifyContent = "space-between";
@@ -414,25 +415,23 @@ function renderWorkout(){
     `;
     toggleRow.querySelector("button").onclick = () => {
       e.use3 = !e.use3;
-      if(e.use3) e.sets[3] = null; // reset S4
+      if(e.use3) e.sets[3] = null;
       saveDB(db);
       render();
     };
     card.appendChild(toggleRow);
 
-    // Sets grid
+    // Sets
     const grid = document.createElement("div");
     grid.className = "grid";
-    const setLabels = ["S1","S2","S3","S4"];
-    setLabels.forEach((lab, s) => {
-      if(e.use3 && s === 3) return; // hide S4
+    ["S1","S2","S3","S4"].forEach((lab, s) => {
+      if(e.use3 && s === 3) return;
       const f = document.createElement("div");
       f.className = "field";
       f.innerHTML = `<label>${lab} (reps)</label>`;
       const inp = document.createElement("input");
       inp.type = "number";
       inp.inputMode = "numeric";
-      inp.min = "0";
       inp.placeholder = "—";
       inp.value = (e.sets[s] ?? "");
       inp.className = "num";
@@ -446,7 +445,7 @@ function renderWorkout(){
     });
     card.appendChild(grid);
 
-    // Weight
+    // Charge
     const weightField = document.createElement("div");
     weightField.className = "field";
     weightField.style.marginTop = "10px";
@@ -454,7 +453,6 @@ function renderWorkout(){
     const winp = document.createElement("input");
     winp.type="number";
     winp.inputMode="decimal";
-    winp.min="0";
     winp.step="0.5";
     winp.placeholder="—";
     winp.value = (e.weight ?? "");
@@ -474,29 +472,27 @@ function renderWorkout(){
     autoWrap.style.gap="10px";
     autoWrap.style.marginTop="10px";
 
-    const tBox = document.createElement("div");
-    tBox.className = "autoBox";
-    tBox.innerHTML = `<div class="k">Total reps</div><div class="v" data-k="total">0</div>`;
-
-    const vBox = document.createElement("div");
-    vBox.className = "autoBox";
-    vBox.innerHTML = `<div class="k">Volume</div><div class="v" data-k="vol">0</div>`;
-
-    autoWrap.appendChild(tBox);
-    autoWrap.appendChild(vBox);
+    autoWrap.innerHTML = `
+      <div class="autoBox">
+        <div class="k">Total reps</div>
+        <div class="v" data-k="total">0</div>
+      </div>
+      <div class="autoBox">
+        <div class="k">Volume</div>
+        <div class="v" data-k="vol">0</div>
+      </div>
+    `;
     card.appendChild(autoWrap);
 
     // Action
     const act = document.createElement("div");
     act.className = "action warn";
     act.dataset.k = "action";
-    act.textContent = "➡️ AJOUTER DES REPS";
     card.appendChild(act);
 
-    // Target hint (next session guidance)
+    // Cible
     const target = document.createElement("div");
     target.className = "hint";
-    target.style.marginTop = "8px";
     target.dataset.k = "target";
     card.appendChild(target);
 
@@ -504,25 +500,40 @@ function renderWorkout(){
     list.appendChild(card);
   });
 
+  // 👉 AJOUT DE LA LISTE AU WRAPPER
   wrapper.appendChild(list);
 
-  // History
-  const wlist = document.createElement("div");
-  wlist.className = "card";
-  wlist.innerHTML = `<div class="cardTitle"><div><strong>🗃 Historique</strong><div class="small">Tape pour ouvrir une séance passée</div></div></div>`;
+  // ===== BOUTON AJOUTER EXERCICE (EN BAS) =====
+  const addRow = document.createElement("div");
+  addRow.className = "card";
+  addRow.innerHTML = `<button class="ghost" style="width:100%">➕ Ajouter un exercice</button>`;
+  addRow.querySelector("button").onclick = () => {
+    const name = prompt("Nom de l'exercice ?");
+    if(!name) return;
+    w.entries.push({ name, sets:[null,null,null,null], use3:false, weight:null });
+    saveDB(db);
+    render();
+  };
+  wrapper.appendChild(addRow);
+
+  // Historique
+  const histWrap = document.createElement("div");
+  histWrap.className = "card";
+  histWrap.innerHTML = `<div class="cardTitle"><strong>🗃 Historique</strong></div>`;
   const hist = document.createElement("div");
   hist.className = "exList";
-  db.workouts.slice(0, 8).forEach(x => {
+
+  db.workouts.slice(0,8).forEach(x => {
     const b = document.createElement("button");
     b.className = "ghost";
-    const xd = new Date(x.date).toLocaleDateString("fr-FR", { month:"short", day:"numeric" });
-    b.textContent = `${x.session} — ${xd}`;
-    b.onclick = () => { currentWorkoutId = x.id; setView("workout"); };
+    const d = new Date(x.date).toLocaleDateString("fr-FR",{month:"short",day:"numeric"});
+    b.textContent = `${x.session} — ${d}`;
+    b.onclick = () => { currentWorkoutId = x.id; render(); };
     hist.appendChild(b);
   });
-  wlist.appendChild(hist);
 
-  main.replaceChildren(wrapper, wlist);
+  histWrap.appendChild(hist);
+  main.replaceChildren(wrapper, histWrap);
 }
 
 function updateEntryUI(cardEl, entry){
