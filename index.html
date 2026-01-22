@@ -6,17 +6,17 @@
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="default" />
   <meta name="theme-color" content="#0b0f19" />
+  <link rel="manifest" href="manifest.json">
   <title>Log Muscu</title>
   <style>
     :root{
       --bg:#0b0f19; --card:#121a2b; --muted:#9aa6c3; --text:#eaf0ff;
       --input:#fff2cc; --auto:#e7f3ff; --ok:#b7f7c8; --warn:#ffe3ad; --bad:#ffb3b3;
-      --accent:#7aa8ff;
-      --r:18px;
+      --accent:#7aa8ff; --r:18px;
     }
     *{box-sizing:border-box}
     body{
-      margin:0; font-family: -apple-system, system-ui, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+      margin:0; font-family:-apple-system,system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif;
       background:linear-gradient(180deg,#0b0f19,#070a12);
       color:var(--text);
       padding:14px 14px 90px;
@@ -35,9 +35,7 @@
       font-size:12px; color:var(--muted); border:1px solid rgba(255,255,255,.10);
       padding:6px 10px; border-radius:999px;
     }
-    select, button, input[type="number"], input[type="text"]{
-      font:inherit;
-    }
+    select, button, input[type="number"], input[type="text"]{font:inherit}
     select{
       background:rgba(255,255,255,.08); color:var(--text);
       border:1px solid rgba(255,255,255,.12);
@@ -135,16 +133,6 @@
     }
     .toolbar button{flex:1}
     .exList{margin-top:10px; display:flex; flex-direction:column; gap:10px}
-    .exName{
-      width:100%;
-      padding:12px 12px;
-      border-radius:14px;
-      border:1px solid rgba(255,255,255,.10);
-      background:rgba(255,255,255,.08);
-      color:var(--text);
-      font-weight:800;
-    }
-    .splitRow{display:flex; gap:10px}
     canvas{width:100%; height:180px; background:rgba(255,255,255,.04); border-radius:16px; border:1px solid rgba(255,255,255,.06)}
     .legend{display:flex; gap:10px; flex-wrap:wrap; margin-top:8px; color:var(--muted); font-size:12px}
     .dot{display:inline-block; width:10px; height:10px; border-radius:999px; vertical-align:middle; margin-right:6px}
@@ -170,11 +158,11 @@
       <option value="Bas A">Bas A</option>
       <option value="Bas B">Bas B</option>
     </select>
+
     <button id="newWorkoutBtn">+ Nouvelle séance</button>
     <button class="ghost" id="backBtn" style="display:none">⬅️ Séance</button>
     <button class="ghost" id="statsBtn">📈 Progression</button>
     <button class="ghost" id="settingsBtn">⚙️ Exercices</button>
-
   </div>
 </header>
 
@@ -218,13 +206,21 @@ let db = loadDB();
 /** =========================
  *  Helpers progression
  *  ========================= */
-function totalReps(sets){ return sets.reduce((a,b)=>a+(Number(b||0)),0); }
-function volume(sets, w){ return totalReps(sets) * Number(w||0); }
-function actionFor(sets){
-  // 4x6-10 => seuils: >=40 (4x10) -> augmenter charge ; >=24 -> ajouter reps ; sinon trop lourd
-  const t = totalReps(sets);
-  if(t >= 40) return { text:"⬆️ AUGMENTER LA CHARGE", cls:"ok" };
-  if(t >= 24) return { text:"➡️ AJOUTER DES REPS", cls:"warn" };
+function totalReps(sets, use3=false){
+  const arr = use3 ? sets.slice(0,3) : sets;
+  return arr.reduce((a,b)=>a+(Number(b||0)),0);
+}
+function volume(sets, w, use3=false){
+  return totalReps(sets, use3) * Number(w||0);
+}
+function actionFor(sets, use3=false){
+  // 4x6-10 => min=24 max=40 ; 3x6-10 => min=18 max=30
+  const t = totalReps(sets, use3);
+  const max = use3 ? 30 : 40;
+  const min = use3 ? 18 : 24;
+
+  if(t >= max) return { text:"⬆️ AUGMENTER LA CHARGE", cls:"ok" };
+  if(t >= min) return { text:"➡️ AJOUTER DES REPS", cls:"warn" };
   return { text:"⬇️ TROP LOURD / AJUSTER", cls:"bad" };
 }
 function fmt(n){ return (Math.round(n*100)/100).toString(); }
@@ -252,7 +248,8 @@ function newWorkout(session){
     date: new Date().toISOString(),
     entries: exs.map(name => ({
       name,
-      sets: [null,null,null,null], // S1..S4
+      sets: [null,null,null,null],  // S1..S4
+      use3: false,                  // 3 séries ?
       weight: null
     }))
   };
@@ -273,22 +270,18 @@ function getWorkout(){
 
 function setView(v){ view = v; render(); }
 
-backBtn.style.display = (view === "workout") ? "none" : "inline-block";
 document.getElementById("newWorkoutBtn").addEventListener("click", () => {
   newWorkout(sessionSelect.value);
   setView("workout");
 });
-
 document.getElementById("statsBtn").addEventListener("click", () => setView("stats"));
 document.getElementById("settingsBtn").addEventListener("click", () => setView("settings"));
 backBtn.addEventListener("click", () => setView("workout"));
-
 
 document.getElementById("saveBtn").addEventListener("click", () => {
   saveDB(db);
   toast("Sauvé ✅");
 });
-
 document.getElementById("exportBtn").addEventListener("click", () => exportJSON());
 document.getElementById("importBtn").addEventListener("click", () => importJSON());
 
@@ -346,7 +339,7 @@ function importJSON(){
 }
 
 /** =========================
- *  Render: Workout (mobile-first)
+ *  Render: Workout
  *  ========================= */
 function renderWorkout(){
   const w = getWorkout();
@@ -363,7 +356,6 @@ function renderWorkout(){
                    <button class="danger" id="delBtn">Supprimer</button>`;
   wrapper.appendChild(top);
 
-  // Delete
   setTimeout(() => {
     const delBtn = document.getElementById("delBtn");
     if(delBtn){
@@ -376,6 +368,20 @@ function renderWorkout(){
     }
   }, 0);
 
+  // + Add exercise button
+  const addRow = document.createElement("div");
+  addRow.className = "row";
+  addRow.style.marginTop = "10px";
+  addRow.innerHTML = `<button class="ghost" style="width:100%">➕ Ajouter un exercice</button>`;
+  addRow.querySelector("button").onclick = () => {
+    const name = prompt("Nom de l'exercice ?");
+    if(!name) return;
+    w.entries.push({ name, sets:[null,null,null,null], use3:false, weight:null });
+    saveDB(db);
+    render();
+  };
+  wrapper.appendChild(addRow);
+
   const list = document.createElement("div");
   list.className = "exList";
 
@@ -385,15 +391,41 @@ function renderWorkout(){
 
     const title = document.createElement("div");
     title.className = "cardTitle";
-    title.innerHTML = `<div><strong>${e.name}</strong><div class="small">Reps & charge uniquement</div></div>
-                       <span class="pill">Ex ${idx+1}</span>`;
+    title.innerHTML = `
+      <div><strong>${e.name}</strong><div class="small">Reps & charge uniquement</div></div>
+      <button class="danger" style="padding:8px 10px;border-radius:12px;">✕</button>
+    `;
+    title.querySelector("button").onclick = () => {
+      if(!confirm("Supprimer cet exercice ?")) return;
+      w.entries.splice(idx, 1);
+      saveDB(db);
+      render();
+    };
     card.appendChild(title);
 
-    // Sets grid (2 columns => big touch targets)
+    // Toggle 3/4 series
+    const toggleRow = document.createElement("div");
+    toggleRow.className = "row";
+    toggleRow.style.justifyContent = "space-between";
+    toggleRow.style.marginBottom = "8px";
+    toggleRow.innerHTML = `
+      <span class="small">Format</span>
+      <button class="ghost">${e.use3 ? "3 séries ✅" : "4 séries"}</button>
+    `;
+    toggleRow.querySelector("button").onclick = () => {
+      e.use3 = !e.use3;
+      if(e.use3) e.sets[3] = null; // reset S4
+      saveDB(db);
+      render();
+    };
+    card.appendChild(toggleRow);
+
+    // Sets grid
     const grid = document.createElement("div");
     grid.className = "grid";
     const setLabels = ["S1","S2","S3","S4"];
     setLabels.forEach((lab, s) => {
+      if(e.use3 && s === 3) return; // hide S4
       const f = document.createElement("div");
       f.className = "field";
       f.innerHTML = `<label>${lab} (reps)</label>`;
@@ -404,7 +436,11 @@ function renderWorkout(){
       inp.placeholder = "—";
       inp.value = (e.sets[s] ?? "");
       inp.className = "num";
-      inp.oninput = () => { e.sets[s] = inp.value === "" ? null : Number(inp.value); updateEntryUI(card, e); };
+      inp.oninput = () => {
+        e.sets[s] = inp.value === "" ? null : Number(inp.value);
+        updateEntryUI(card, e);
+        saveDB(db);
+      };
       f.appendChild(inp);
       grid.appendChild(f);
     });
@@ -423,7 +459,11 @@ function renderWorkout(){
     winp.placeholder="—";
     winp.value = (e.weight ?? "");
     winp.className="num";
-    winp.oninput = () => { e.weight = winp.value === "" ? null : Number(winp.value); updateEntryUI(card, e); };
+    winp.oninput = () => {
+      e.weight = winp.value === "" ? null : Number(winp.value);
+      updateEntryUI(card, e);
+      saveDB(db);
+    };
     weightField.appendChild(winp);
     card.appendChild(weightField);
 
@@ -453,15 +493,20 @@ function renderWorkout(){
     act.textContent = "➡️ AJOUTER DES REPS";
     card.appendChild(act);
 
-    // Update UI now
-    updateEntryUI(card, e);
+    // Target hint (next session guidance)
+    const target = document.createElement("div");
+    target.className = "hint";
+    target.style.marginTop = "8px";
+    target.dataset.k = "target";
+    card.appendChild(target);
 
+    updateEntryUI(card, e);
     list.appendChild(card);
   });
 
   wrapper.appendChild(list);
 
-  // Previous workouts quick switch
+  // History
   const wlist = document.createElement("div");
   wlist.className = "card";
   wlist.innerHTML = `<div class="cardTitle"><div><strong>🗃 Historique</strong><div class="small">Tape pour ouvrir une séance passée</div></div></div>`;
@@ -481,9 +526,9 @@ function renderWorkout(){
 }
 
 function updateEntryUI(cardEl, entry){
-  const t = totalReps(entry.sets);
-  const vol = volume(entry.sets, entry.weight);
-  const act = actionFor(entry.sets);
+  const t = totalReps(entry.sets, entry.use3);
+  const vol = volume(entry.sets, entry.weight, entry.use3);
+  const act = actionFor(entry.sets, entry.use3);
 
   cardEl.querySelector('[data-k="total"]').textContent = fmt(t);
   cardEl.querySelector('[data-k="vol"]').textContent = fmt(vol);
@@ -492,10 +537,19 @@ function updateEntryUI(cardEl, entry){
   actionEl.textContent = act.text;
   actionEl.classList.remove("ok","warn","bad");
   actionEl.classList.add(act.cls);
+
+  const targetEl = cardEl.querySelector('[data-k="target"]');
+  if(act.cls === "ok"){
+    targetEl.textContent = "🎯 Prochaine séance : augmente la charge (au choix) et repars vers ~6 reps.";
+  } else if(act.cls === "warn"){
+    targetEl.textContent = "🎯 Prochaine séance : garde la charge et essaie d'ajouter 1 rep.";
+  } else {
+    targetEl.textContent = "🎯 Prochaine séance : baisse légèrement la charge ou améliore la forme.";
+  }
 }
 
 /** =========================
- *  Render: Settings (exercises)
+ *  Render: Settings
  *  ========================= */
 function renderSettings(){
   const s = sessionSelect.value;
@@ -555,14 +609,13 @@ function renderStats(){
     <div class="hint">Astuce : tape “Nouvelle séance” à chaque entraînement pour que les courbes soient propres.</div>
   `;
 
-  // Build series: per session, we take sum(volume) & max(weight) for that workout
   const ws = db.workouts
     .filter(w => w.session === session)
     .slice(0, 20)
     .reverse();
 
   const labels = ws.map(w => new Date(w.date).toLocaleDateString("fr-FR", {month:"short", day:"numeric"}));
-  const volumes = ws.map(w => w.entries.reduce((acc,e)=>acc + volume(e.sets,e.weight), 0));
+  const volumes = ws.map(w => w.entries.reduce((acc,e)=>acc + volume(e.sets,e.weight,e.use3), 0));
   const maxW = ws.map(w => Math.max(0, ...w.entries.map(e=>Number(e.weight||0))));
 
   const c1 = document.createElement("canvas");
@@ -579,19 +632,15 @@ function renderStats(){
   wrap.appendChild(leg);
   wrap.appendChild(c2);
 
-  // Draw simple line charts without external libs (offline-friendly)
   function drawLine(canvas, series, color){
     const ctx = canvas.getContext("2d");
     const W = canvas.width = canvas.clientWidth * devicePixelRatio;
     const H = canvas.height = canvas.clientHeight * devicePixelRatio;
-
     ctx.clearRect(0,0,W,H);
 
-    // paddings
     const p = 24 * devicePixelRatio;
     const x0 = p, y0 = p, x1 = W - p, y1 = H - p;
 
-    // axis box
     ctx.strokeStyle = "rgba(255,255,255,.18)";
     ctx.lineWidth = 1 * devicePixelRatio;
     ctx.strokeRect(x0,y0,x1-x0,y1-y0);
@@ -606,10 +655,8 @@ function renderStats(){
     const min = Math.min(...series);
     const max = Math.max(...series);
     const span = (max - min) || 1;
-
     const stepX = (x1-x0) / (series.length-1);
 
-    // line
     ctx.beginPath();
     series.forEach((v,i)=>{
       const x = x0 + i*stepX;
@@ -620,7 +667,6 @@ function renderStats(){
     ctx.lineWidth = 2.5 * devicePixelRatio;
     ctx.stroke();
 
-    // points
     ctx.fillStyle = color;
     series.forEach((v,i)=>{
       const x = x0 + i*stepX;
@@ -628,7 +674,6 @@ function renderStats(){
       ctx.beginPath(); ctx.arc(x,y,3.5*devicePixelRatio,0,Math.PI*2); ctx.fill();
     });
 
-    // labels (first/last)
     ctx.fillStyle = "rgba(255,255,255,.70)";
     ctx.font = `${11*devicePixelRatio}px -apple-system,system-ui`;
     ctx.fillText(labels[0] || "", x0, y1 + 18*devicePixelRatio);
@@ -645,10 +690,8 @@ function renderStats(){
   block2.innerHTML = `<div class="cardTitle"><div><strong>Volume</strong><div class="small">somme (tous exercices)</div></div></div>`;
   block2.appendChild(c2);
 
-  // replace wrap children with blocks to keep spacing nice
   main.replaceChildren(wrap, block1, block2);
 
-  // draw after inserted (has size)
   setTimeout(()=>{
     drawLine(c1, maxW, "#7aa8ff");
     drawLine(c2, volumes, "#ffd36a");
@@ -659,6 +702,9 @@ function renderStats(){
  *  Main render
  *  ========================= */
 function render(){
+  // ✅ Back button must be toggled here (runs on every view change)
+  backBtn.style.display = (view === "workout") ? "none" : "inline-block";
+
   // show/hide toolbar
   document.getElementById("toolbar").style.display = (view === "settings") ? "none" : "flex";
 
@@ -670,6 +716,11 @@ sessionSelect.addEventListener("change", ()=>render());
 
 // Start
 render();
+
+/** Service Worker registration (offline) */
+if ("serviceWorker" in navigator) {
+  navigator.serviceWorker.register("./sw.js");
+}
 </script>
 </body>
 </html>
